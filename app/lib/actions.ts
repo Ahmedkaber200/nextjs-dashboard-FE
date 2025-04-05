@@ -35,9 +35,6 @@ if (!process.env.POSTGRES_URL) {
 // Create a PostgreSQL connection
 const sql = postgres(process.env.POSTGRES_URL, { ssl: "require" });
 
-
-
-
 // // Define the schema for invoice creation
 // const CreateInvoice = z.object({
 //   customerId: z.string(),
@@ -70,52 +67,63 @@ export type State = {
 };
 
 export async function createInvoice(prevState: State, formData: FormData) {
-    // Parse and validate form data
-
-     // Validate form fields using Zod
+  // Validate form fields using Zod
   const validatedFields = CreateInvoice.safeParse({
+    id: crypto.randomUUID(), // Generate a random ID if needed
     customerId: formData.get('customerId'),
     amount: Number(formData.get("amount")),
     status: formData.get('status'),
-    });
+    date: new Date().toISOString().split("T")[0], // Add current date
+  });
 
-      // If form validation fails, return errors early. Otherwise, continue.
+  // If form validation fails, return errors early
   if (!validatedFields.success) {
+    console.error('Validation failed:', validatedFields.error);
     return {
       errors: validatedFields.error.flatten().fieldErrors,
       message: 'Missing Fields. Failed to Create Invoice.',
     };
   }
 
-    // Prepare data for insertion into the database
-    const { customerId, amount, status } = validatedFields.data;
-    // Convert amount to cents
-    const amountInCents = amount * 100;
+  // Prepare data for insertion
+  const { customerId, amount, status, date } = validatedFields.data;
+  const amountInCents = amount * 100;
 
-    // Get the current date in YYYY-MM-DD format
-    const date = new Date().toISOString().split("T")[0];
+  try {
+    await sql`
+      INSERT INTO invoices (customer_id, amount, status, date)
+      VALUES (${customerId}, ${amountInCents}, ${status}, ${date})
+    `;
+    console.log('Invoice created successfully');
+    
+    revalidatePath('/ui/dashboard/invoices');
+    return redirect('/ui/dashboard/invoices');
+  } catch (error) {
+    console.error('Database error:', error);
+    return {
+      message: 'Database Error: Failed to Create Invoice.',
+    };
+  }
+}
 
-    // Insert data into the database
+  export async function deleteInvoice(id: string) {
     try {
-      await sql`
-        INSERT INTO invoices (customer_id, amount, status, date)
-        VALUES (${customerId}, ${amountInCents}, ${status}, ${date})
-      `;
+      await sql`DELETE FROM invoices WHERE id = ${id}`;
+      revalidatePath("/dashboard/invoices");
+      return { message: 'Invoice deleted successfully' };
     } catch (error) {
-      // We'll log the error to the console for now
-      console.error(error);
+      console.error('Failed to delete invoice:', error);
+      throw new Error('Failed to Delete Invoice');
     }
+  }
 
-    redirect('/ui/dashboard/invoices');
-}
-
-export async function deleteInvoice(id: string) {
-  throw new Error('Failed to Delete Invoice');
+// export async function deleteInvoice(id: string) {
+//   throw new Error('Failed to Delete Invoice');
   
-   // Unreachable code block
-  await sql`DELETE FROM invoices WHERE id = ${id}`;
-  revalidatePath("/dashboard/invoices");
-}
+//    // Unreachable code block
+//   await sql`DELETE FROM invoices WHERE id = ${id}`;
+//   revalidatePath("/dashboard/invoices");
+// }
 
 // Define the schema for invoice creation and updatez
 const FormSchema = z.object({
